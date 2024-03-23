@@ -1,0 +1,212 @@
+import pygame
+import math
+import random
+
+# Initialize pygame
+pygame.init()
+pygame.mixer.set_num_channels(600)  # Increase the number of available channels
+
+# Screen dimensions
+WIDTH, HEIGHT = 1000, 1000
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Circle Physics Simulation")
+
+
+# Colors of the rainbow
+RAINBOW_COLORS = [(255, 0, 0), (255, 165, 0), (255, 255, 0), (255, 127, 0), 
+                  (0, 255, 255), (0, 0, 255), (75, 0, 130), (148, 0, 211)]  # Add more colors as needed
+
+bg_color = (0, 0, 0)
+
+# Ball settings
+ball_radius = 10
+ball_center = [WIDTH // 2, HEIGHT // 2]
+ball_velocity = [20, 20]  # Initial velocity
+ball_mass = 150
+elasticity = 0.814  # Elasticity factor (energy lost in collision)
+velocity_increase_factor = 1.25  # Increase factor for velocity
+size_increase_factor = 1.14  # Increase factor for size
+
+pulse_active = False
+pulse_timer = 0
+pulse_duration = 5  # Adjust based on desired pulse length
+original_radius = ball_radius
+pulse_max_radius_increase = 10  # Adjust based on how much you want the ball to "pulse"
+pulse_outline_thickness = 2  # Thickness of the pulse outline
+
+
+
+# Circle settings
+circle_center = [WIDTH // 2, HEIGHT // 2]
+circle_radius = min(WIDTH, HEIGHT) // 2 - 50  # Adjusted to be 50px from the edge
+outline_thickness = 20  # Outline thickness
+
+# Font Settings
+font = pygame.font.SysFont(None, 48)  # Choose an appropriate font and size
+counter_pos = (WIDTH // 2, circle_center[1] + circle_radius + 35)  # Position below the circle
+
+
+# Gravity
+gravity = 1
+
+# Trace settings
+traces = []
+max_traces = 500  # Maximum number of traces allowed
+traces_per_frame = 10  # Number of traces added per frame
+
+# Color transition settings
+transition_speed = 0.005  # Adjust the speed of color transition for the ball
+transition_speed2 = 0.1  # Adjust the speed of color transition for the circle
+
+# Sound sequence
+note_sequence = ["E5", "E5", "E5", "E5", "E5", "E5", "E5", "E5", "E5", "E5", "E5", "E5", "A5", "A5", "A5"]
+
+# Load sounds
+sounds = [pygame.mixer.Sound(f"C:/Users/harle/Documents/MusicApp/Blip/{note}.wav") for note in note_sequence]
+next_note_index = 0  # Index to keep track of the next note to play
+
+# Keep track of the channels
+channels = [pygame.mixer.Channel(i) for i in range(pygame.mixer.get_num_channels())]
+next_channel_index = 0  # Index to keep track of the next channel to use
+
+
+# Clock to control the frame rate
+clock = pygame.time.Clock()
+
+# Function to smoothly transition between colors
+def transition_color(phase, speed):
+    color_index = phase * (len(RAINBOW_COLORS) - 1)
+    color1 = RAINBOW_COLORS[int(color_index) % len(RAINBOW_COLORS)]
+    color2 = RAINBOW_COLORS[(int(color_index) + 1) % len(RAINBOW_COLORS)]
+    factor = color_index % 1
+    new_color = [int(color1[i] + (color2[i] - color1[i]) * factor) for i in range(3)]
+    return new_color
+    
+
+# Main game loop
+running = True
+color_phase = 0
+bounce_counter = 0
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Apply gravity
+    ball_velocity[1] += gravity
+
+    # Update ball position
+    ball_center[0] += ball_velocity[0]
+    ball_center[1] += ball_velocity[1]
+
+    # Check for collision with walls
+    if ball_center[0] <= ball_radius or ball_center[0] >= WIDTH - ball_radius:
+        ball_velocity[0] *= -elasticity  # Reverse direction and lose energy
+        ball_velocity[0] += velocity_increase_factor  # Increase velocity upon collision
+        bounce_counter += 1
+    if ball_center[1] <= ball_radius or ball_center[1] >= HEIGHT - ball_radius:
+        ball_velocity[1] *= -elasticity  # Reverse direction and lose energy
+        ball_velocity[1] += velocity_increase_factor  # Increase velocity upon collision
+        bounce_counter += 1
+
+    # Check for collision with circle
+    distance_from_center = math.sqrt((ball_center[0] - circle_center[0]) ** 2 +
+                                     (ball_center[1] - circle_center[1]) ** 2)
+    if distance_from_center >= circle_radius - ball_radius:
+        # Calculate normal vector
+        normal = [ball_center[0] - circle_center[0], ball_center[1] - circle_center[1]]
+        length = math.sqrt(normal[0] ** 2 + normal[1] ** 2)
+        normal = [n / length for n in normal]
+        bounce_counter += 1
+
+        # Calculate dot product
+        dot_product = ball_velocity[0] * normal[0] + ball_velocity[1] * normal[1]
+
+        # Calculate reflection
+        reflection = [ball_velocity[i] - 2 * dot_product * normal[i] for i in range(2)]
+
+        # Update velocity with reflection and lose energy
+        ball_velocity[0] = reflection[0] * elasticity
+        ball_velocity[1] = reflection[1] * elasticity
+
+        # Increase ball size and velocity
+        
+        if ball_radius < 100:
+            ball_radius += size_increase_factor
+            ball_velocity[0] *= velocity_increase_factor
+            ball_velocity[1] *= velocity_increase_factor
+        else:
+            ball_radius += 1.2
+            ball_velocity[0] *= 1.3
+            ball_velocity[1] *= 1.3
+
+        # Ensure ball doesn't get stuck on the edge of the circle
+        angle = math.atan2(ball_center[1] - circle_center[1], ball_center[0] - circle_center[0])
+        offset = 2  # Offset to move ball away from the edge
+        ball_center[0] = circle_center[0] + (circle_radius - ball_radius - offset) * math.cos(angle)
+        ball_center[1] = circle_center[1] + (circle_radius - ball_radius - offset) * math.sin(angle)
+
+        # Play sound on a separate channel
+        channel = channels[next_channel_index]
+        if not channel.get_busy():
+            channel.play(sounds[next_note_index])
+            next_channel_index = (next_channel_index + 1) % len(channels)
+            next_note_index = (next_note_index + 1) % len(note_sequence)
+
+    # Transition ball color smoothly
+    ball_color = transition_color(color_phase, transition_speed)
+
+    # Transition circle color smoothly
+    circle_color = transition_color(color_phase, transition_speed2)
+
+
+    # Add multiple traces if inside the circle perimeter
+    for _ in range(traces_per_frame):
+        trace_color = ball_color  # Color of the trace matches the ball color
+        traces.append({'position': ball_center.copy(), 'color': trace_color, 'radius': ball_radius})
+
+        # Limit the number of traces
+        if len(traces) > max_traces:
+            traces.pop(0)  # Remove the oldest trace
+    # Draw everything:
+    screen.fill(bg_color)  # Fill the screen with black
+
+    # Inner circle (static size)
+    pygame.draw.circle(screen, bg_color, circle_center, circle_radius)
+
+    # Outer circle for outline effect
+    # Increase the radius by outline_thickness for the outer rim
+    outer_circle_radius = circle_radius + outline_thickness
+    pygame.draw.circle(screen, circle_color, circle_center, outer_circle_radius, outline_thickness)
+
+    # Draw traces with changing colors
+    for trace in traces:
+        pygame.draw.circle(screen, trace['color'], trace['position'], trace['radius'] + 1)  # Draw black outline
+        pygame.draw.circle(screen, trace['color'], trace['position'], trace['radius'])  # Draw trace
+    
+    pygame.draw.circle(screen, (0, 0, 0), ball_center, int(ball_radius))
+
+    counter_text = font.render(f"Bounces: {bounce_counter}", True, (255, 255, 255))  # Render the text
+    counter_rect = counter_text.get_rect(center=counter_pos)  # Center the text at the counter position
+    screen.blit(counter_text, counter_rect)  # Draw the text on the screen
+    
+    # This is a simple example; you might need to adjust the formula to get the best fit
+    dynamic_font_size = max(int(ball_radius * 0.5), 12)  # Ensure font size is not too small; adjust multiplier as needed
+    dynamic_font = pygame.font.SysFont(None, dynamic_font_size)
+    
+    # The text you want to display
+    #word_text = "LIKE!"
+    #text_color = ball_color  # White, or any color you prefer
+    #text_surface = dynamic_font.render(word_text, True, text_color)
+    #text_rect = text_surface.get_rect(center=(int(ball_center[0]), int(ball_center[1]))) 
+    #pygame.draw.circle(screen, ball_color, ball_center, int(ball_radius))
+    #screen.blit(text_surface, text_rect)
+
+
+    pygame.display.flip()
+    clock.tick(60)
+
+    # Update color phase
+    color_phase += transition_speed
+
+pygame.quit()
